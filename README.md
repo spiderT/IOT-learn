@@ -798,3 +798,170 @@ MQTT Broker 服务器将数据给到消息队列，就完成了数据传输的�
 缓存系统的常用开源选择有 Redis 和 Memcached 等。其中 Redis 更是在数据持久机制和主从节点复制的高可用特性上做了很多工作，不但功能强大，而且效率也很高。
 
 ![iot](images/IOT18.jpg)
+
+## 6. 搭建硬件开发环境
+
+### 6.1. 通信技术：Wi-Fi
+
+智能家居场景下常用的有 Wi-Fi、BLE 和 ZigBee 等.智能电灯应该选择哪种技术?  
+
+从通信速率来看，智能电灯传输的数据，包括控制命令和几种状态的数值，数据量都非常小，这几种通信技术都可以满足要求。  
+
+从功耗来看，智能电灯是直接连接电线的，不需要电池供电，所以低功耗的 BLE 和 ZigBee 技术不是必须的选择，功耗相对较高的 Wi-Fi 也可以考虑。  
+
+从普及度和易用性的角度分析，如果使用 BLE，设备与手机的交互确实会非常方便。但是 BLE 和 ZigBee 的设备都有一个缺点，就是需要搭配专有的网关才能连接互联网，这在部署和使用的时候都比较麻烦。所以，我们选择 Wi-Fi 作为智能电灯的通信方式。  
+
+### 6.2. 开发板：NodeMCU
+
+推荐选择开源硬件的开发板，有两个原因。第一，硬件、软件的各种技术实现是公开的，方便分析问题，也方便后期转化为量产的产品；第二，有社区氛围，使用的人比较多，大家可以针对具体的问题进行交流。  
+
+[NodeMCU](https://nodemcu.readthedocs.io/en/release/)基于 ESP8266 芯片的版本，Flash 空间有 4MB，自带 Wi-Fi 功能，而且价格便宜，在国内外都非常流行。  
+
+### 6.3. 开发语言：Python
+
+MicroPython 是专门为嵌入式系统打造的 Python 实现。它完整实现了 Python3.4 的语言特性，部分支持 Python3.5 的特性。在标准库方面，MicroPython 实现了 Python 语言的一个子集，另外还增加了与底层硬件交互的库模块。  
+
+### 6.4. 搭建 MicroPython 开发环境
+
+把 MicroPython 部署到 NodeMCU 开发板上.
+
+#### 6.4.1. 准备固件文件
+
+为 NodeMCU 准备好 MicroPython 固件文件。MicroPython 官方已经为 ESP8266 芯片准备了[现成的固件](https://micropython.org/download/esp8266/).  
+
+MicroPython 的固件分为 2M、1M 和 512K 三个不同的版本，针对不同大小的 Flash 存储空间。我们下载最新的 2M 稳定版本（带 stable 的）就行，因为 NodeMCU 开发板的 Flash 空间是足够的。  
+
+#### 6.4.2. 安装烧录工具
+
+安装用来烧录的工具 esptool ：
+
+```text
+pip3 install esptool
+```
+
+使用一根 USB 数据线，将 NodeMCU 开发板和电脑连接起来。esptool 安装完成后，你可以运行 esptool.py read_mac 命令，确认 NodeMCU 板子是否连接成功。  
+
+如果连接不成功，或者没有正确识别设备，屏幕上则会出现下面的结果：  
+
+![images](images/IOT19.png)
+
+首先，检查一下你使用的 USB 线能否传输数据。  
+
+如果 USB 线没有问题，那可能是电脑没有正确识别开发板，我们需要检查一下驱动文件有没有安装好。  
+
+macOS 系统，可以在电脑的终端上输入 ls /dev/cu* 命令，查看是否有类似 /dev/cu.wchusbserialxxxxx 名字的设备文件。  
+
+如果没有，你可以参考这篇[文章](https://learn.sparkfun.com/tutorials/how-to-install-ch340-drivers/all#mac-osx)，下载相应的驱动文件安装。（注意，我的 NodeMCU 开发板使用的是 CH340 这款 USB 转串口芯片。如果是 CP2102 芯片，可以参考这篇[文章](https://learn.sparkfun.com/tutorials/cp2102-usb-to-serial-converter-hook-up-guide)。）  
+
+#### 6.4.3. 烧录固件
+
+需要先输入下面命令，擦除 Flash 芯片：
+
+```text
+# 注意设备名称替换为你电脑上的名称
+esptool.py --port /dev/cu.wchusbserial14230 erase_flash
+```
+
+擦除成功后，我们进入存储前面下载固件的目录中，运行下面的命令，将固件文件烧录到开发板的 Flash 中：
+
+```text
+# 注意设备名称替换为你电脑上的名称，固件文件名称做类似修改
+esptool.py --port /dev/cu.wchusbserial14230 --baud 460800 write_flash --flash_size=detect 0 esp8266-20200911-v1.13.bin
+```
+
+烧录成功后，MicroPython 已经在你的开发板上运行起来了。
+
+#### 6.4.4. 确认运行状态
+
+可以用电脑或者手机搜索一下周围的 Wi-Fi 热点，如果看到类似 “MicroPython-xxxxxx” 名称的热点（xxxxxx 是开发板 MAC 地址后半部分），说明你的 NodeMCU 工作正常。比如我的开发板 MAC 地址是“40:f5:20:07:3b:52”，现在我看到了“MicroPython-073b52”这个热点，就说明开发板在正常运行。  
+
+对于 Python 来说，更方便的交互方式还是 REPL （交互式解释器），这个 MicroPython 也提供了。我们可以通过 REPL 来检验开发板的运行。  
+
+使用烧录时用到的 USB 线连接开发板和电脑。在 MacOS 电脑上，重新连接开发板的时候，串口设备名称可能会改变，所以为保险起见，再次运行命令：
+
+```text
+ls /dev/cu*
+```
+
+获得串口设备名称之后，我们可以使用终端模拟器软件，比如 [SecureCRT](https://www.vandyke.com/cgi-bin/releases.php?product=securecrt)，通过串口协议连接上开发板，进行交互。  
+
+需要注意的是，波特率（Baud rate）设置为 115200，这与前面烧录时选择的值不同。  
+
+![images](images/IOT20.png)
+
+### 6.5. 部署代码到开发板
+
+这段代码实现的功能是，控制 LED 灯以 2 秒的间隔，不断点亮、熄灭。
+
+```py
+
+import machine
+import time
+
+# 指明 GPIO2 管脚
+pin = machine.Pin(2, machine.Pin.OUT)
+
+# 循环执行
+while True:
+    time.sleep(2)   # 等待 2 秒
+    pin.on()        # 控制 LED 状态
+    time.sleep(2)   # 等待 2 秒
+    pin.off()       # 切换 LED 状
+```
+
+为了在电路板上运行这个 Python 代码，需要做两件事情：
+
+1. 将代码段保存到一个文件中，这个文件的名字必须是 main.py。  
+2. 将代码文件 main.py 放到开发板的文件系统中，而且是根目录。  
+
+这样，当开发板启动或者重启的时候，就会自动执行 main.py 文件中的代码。  
+
+怎么把代码文件上传到开发板上呢？MicroPython 的官方提供了一个工具[pyboard.py](https://docs.micropython.org/en/latest/reference/pyboard.py.html).  
+
+它也是基于串口连接与开发板通信的。你可以使用它操作开发板上的文件系统，比如常用的拷贝文件、创建文件夹、删除等功能，甚至可以将电脑上的代码文件加载到内存中，直接运行。这非常便于你在开发过程中，进行代码的调试。  
+
+下载 pyboard.py 的源文件到电脑后，你可以运行下面的命令，将 main.py 文件部署到你的开发板：  
+
+```text
+# 设置环境变量，指明串口设备
+export PYBOARD_DEVICE=/dev/cu.wchusbserial14220
+
+
+#拷贝当前目录下的 main.py 到开发板
+./pyboard.py cp main.py :
+```
+
+pyboard.py 在 MacOS 系统上运行有问题。比如，在电脑终端，尝试运行下面的命令，就会收到 “could not enter raw repl” 这个错误信息。
+./pyboard.py -f ls /  
+
+这可能是 MacOS 上的串口芯片 CH340 的驱动的问题，它会在建立串口连接时，重置 NodeMCU ，导致 enter_raw_repl 函数无法正常执行。如果你在 MacOS 上开发，使用 [AdaFruit MicroPython tool —— ampy](https://learn.adafruit.com/micropython-basics-load-files-and-run-code/install-ampy).  
+
+一般情况下，你可以用下面的命令完成安装：  
+
+```text
+pip install adafruit-ampy
+# ---或者---
+pip3 install adafruit-ampy
+```
+
+ampy 是通过增加延时的方法，来规避 MacOS 系统上的问题的。所以在使用的时候，我们需要先设置一个环境变量 —— AMPY_DELAY。延时的推荐值是 0.5，不过，具体实践时，你需要根据自己的开发板的试验情况，灵活调整这个数值。
+
+```text
+export AMPY_DELAY=0.5
+```
+
+使用 ampy 的过程中，常用的环境变量还有下面两个，可以根据具体情况设置：
+
+```text
+#设备名称请根据你的情况修改
+export AMPY_PORT=/dev/cu.wchusbserial14220
+
+#串口通信的波特率   
+export AMPY_BAUD=115200
+```
+
+输入下面的命令，就把代码部署到开发板上了。
+
+```text
+ampy put main.py
+```
