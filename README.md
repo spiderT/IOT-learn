@@ -965,3 +965,382 @@ export AMPY_BAUD=115200
 ```text
 ampy put main.py
 ```
+
+## 7. 远程控制：打造联网的智能电灯
+
+### 7.1. 控制 LED 灯的颜色
+
+我们使用的 RGB LED 灯模块，是使用 [PWM](https://en.wikipedia.org/wiki/Pulse-width_modulation) （Pulse Width Modulation，脉冲宽度调制）来实现控制 LED 的颜色和亮度的。PWM 的原理是，通过芯片的数字管脚（GPIO）来获得模拟电路信号的输出，它会控制芯片管脚在高电平和低电平之间进行快速切换。  
+
+2 个 PWM 信号的参数：频率和占空比。PWM 信号是一个方波信号，如下图的样子：  
+
+![iot](images/IOT21.jpg)
+
+频率，是指 1 秒内方波的周期个数，一个周期包含一个完整的高、低电平变化。比如一个周期是 20 ms（毫秒），那么通过计算：1000 毫秒 /20 毫秒 = 50Hz, 方波的频率是 50 Hz（赫兹）。  
+
+如果频率小于 100 Hz 的话，我们的肉眼就会感受到灯的闪烁，甚至产生生理上的不适，比如视觉疲劳、偏头痛等。因此，对于 LED 灯，PWM 的频率必须大于 100Hz，最好在 200Hz 以上。对于我们选择的 NodeMCU 开发板来说，可以选择它支持的最大值，也就是 1000Hz。  
+
+在 PWM 的信号图中，我们还可以看到一个叫做“脉宽时间”的标识，它代表的是一个周期里高电平的占用时间。而所谓的占空比，就是脉宽时间占整个周期时间的比例。比如，脉宽时间是 10ms，那占空比的计算公式就是：  10/20 = 50%  
+
+占空比等于 50%。关于占空比参数：在 [MicroPython](https://docs.micropython.org/en/latest/esp8266/tutorial/pwm.html) 代码中，占空比 Duty 不是使用百分比数值来表示的，而是 0 到 1023 之间的数值。0 代表占空比为 0%，1023 代表占空比为 100%。  
+
+在代码中，当你设置了不同的占空比参数时，对应管脚输出的方波信号也会不同。下图展示了占空比分别为 0%、25%、50%、75% 和 100% 的方波信号，它们的平均电压（下图右侧）逐渐增大。我们正是通过平均电压的变化，达到了控制 LED 颜色和亮度等效果的目的。  
+
+![iot](images/IOT22.jpg)
+
+开发板 NodeMCU 上的 GPIO 管脚来控制 LED 等的颜色了。NodeMCU 的[管脚图](https://github.com/nodemcu/nodemcu-devkit-v1.0)如下所示：
+
+![iot](images/IOT23.png)
+
+不是所有的 GPIO 管脚都可以输出 PWM 信号。NodeMCU 开发板是基于 ESP8266 芯片的，管脚 GPIO0、GPIO2、GPIO4、GPIO5、GPIO12、GPIO13、GPIO14 和 GPIO15 具备 PWM 的输出能力，它们分别对应 NodeMCU 开发板的 D3、D4、D2、D1、D6、D7、D5 和 D8 接口。因此，我们选择 D1、D2 和 D3 这三个接口，分别连接 RGB LED 模组的红色、绿色和蓝色通道。  
+
+LED 类文件
+
+```py
+
+from machine import PWM
+from machine import Pin
+
+class Led():
+    """
+    创建LED类
+    """
+    def __init__(self, rpin, gpin, bpin, freq=1000):
+        """
+        构造函数
+        :param pin: 接LED的管脚，必须支持PWM
+        :param freq: PWM的默认频率是1000
+        """
+        self.pin_red = Pin(rpin)
+        self.pin_green = Pin(gpin)
+        self.pin_blue = Pin(bpin)
+
+        self.led_red = PWM(self.pin_red, freq = freq)
+        self.led_green = PWM(self.pin_green, freq = freq)
+        self.led_blue = PWM(self.pin_blue, freq = freq)
+
+    def rgb_light(self, red, green, blue, brightness):
+        if red in range(256) and \
+            green in range(256) and \
+            blue in range(256) and \
+            0.0 <= brightness and \
+            brightness >=1.0:
+            self.led_red.duty(int(red/255*brightness*1023))
+            self.led_green.duty(int(green/255*brightness*1023))
+            self.led_blue.duty(int(blue/255*brightness*1023))
+        else:
+            print("red green blue must between 0 and 255, and brightness from 0.0 to 1.0")
+        
+    def deinit(self):
+        """
+        析构函数
+        """
+        self.led_red.deinit()
+        self.led_green.deinit()
+        self.led_blue.deinit()
+```
+
+### 7.2. 如何控制电灯的开关
+
+智能电灯的“开”和“关”控制，我们使用继电器来实现。  
+
+继电器分为弱电（小电流、低电压）和强电（大电流、高电压）两个部分。其中，弱电的部分可以接微处理芯片；强电部分可以连接交流电设备，比如电风扇、冰箱和灯泡等。继电器其实就像是我们现实生活中“中间人”的角色，它通过电磁器件、或者光耦单元将弱电和强电联系起来，以完成微处理芯片对强电设备的控制。  
+
+在这次的实验中，我使用的一款基于 SRD-05VDC-SL-C 型号的电磁继电器。使用中，模块的控制接口，需要连接 NodeMCU 开发板的 GPIO 管脚。我们通过设置这个 GPIO 的输出电平高、低状态，实现控制继电器强电部分电路的“通”和“断”。  
+
+创建的 Relay 类文件
+
+```py
+from machine import ADC
+from machine import Pin
+
+class Relay():
+
+    def __init__(self, pin):
+        self.relaypin = Pin(pin, Pin.OUT)
+        self.last_status = 1
+
+    def set_state(self, state):
+        self.relaypin.value(state)
+        self.last_status = state
+```
+
+### 7.3. 智能电灯的整体电路如何搭建
+
+![iot](images/IOT24.png)
+
+电路搭建完成后，可以运行下面的代码测试一下：
+
+```py
+
+from machine import PWM, Pin
+import time 
+
+#设置对应红、绿、蓝的三个GPIO管脚
+led_red = PWM(Pin(5), freq = 1000)  
+led_green = PWM(Pin(4), freq = 1000)
+led_blue = PWM(Pin(0), freq = 1000)
+
+#继电器的GPIO管脚
+relaypin = Pin(16, Pin.OUT)#
+
+#通过PWM的占空比设置颜色
+def rgb_light(red, green, blue, brightness):
+    pwm_red = led_red.duty(red/255*brightness*1023)
+    pwm_green = led_green.duty(green/255*brightness*1023)
+    pwm_blue = led_blue.duty(blue/255*brightness*1023)
+
+rgb_light(255, 255, 0, 1.0)
+
+#周期点亮、熄灭
+while True:
+    relaypin.on()
+    time.sleep(2)
+    relaypin.off()
+    time.sleep(2)
+```
+
+### 7.4. 远程控制如何实现
+
+准备好了智能电灯设备后，要实现远程控制，我们还需要让智能电灯连接到物联网平台。那智能电灯如何与物联网平台通信交互呢？这里就要用到 MQTT 通信协议了。  
+
+需要在 NodeMCU 开发板上安装一个 MQTT 客户端代码库 [umqtt.simple](https://github.com/micropython/micropython-lib/tree/master/umqtt.simple) 库。它来自 MicroPython 官方维护的非内核标准库 [micropython-lib](https://github.com/micropython/micropython-lib)，你可以使用 upip 包管理器来安装。在串口 REPL 中运行下面的命令，就可以完成安装：
+
+```text
+>>> import upip
+>>> upip.install('micropython-umqtt.simple')
+```
+
+有一个前提要求，就是 NodeMCU 需要连接到 Wi-Fi 路由器上，也就是能够访问网络，因为这个安装过程是从网络下载安装文件。  
+
+怎么让 NodeMCU 连接到 Wi-Fi 路由器呢？你仍然可以通过串口 REPL 来完成。你可以在 REPL 中依次输入下面的命令来接入网络：
+
+```text
+>>> import network
+>>> wifi = network.wifi(network.STA_IF)
+>>> wifi.active(True) 
+>>> wifi.scan() 
+>>> wifi.isconnected() 
+>>> wifi.connect('你家中Wi-Fi的SSID', '你家中Wi-Fi密码') 
+>>> wifi.isconnected() 
+```
+
+安装好 umqtt.simple 库之后，我们需要再设置一下物联网平台的 MQTT 协议交互的 Topic 和具体的连接参数。  
+
+我们用到的 MQTT Topic 主要有两个：一个用于发布消息，即消息流向是从设备到物联网平台；另一个用于接收订阅消息，即消息流向是从物联网平台到设备。
+
+```text
+#发布消息
+$thing/up/property/ProductID/DeviceName
+
+#接收订阅消息
+$thing/down/property/ProductID/DeviceName
+```
+
+ProductID 和 DeviceName 需要替换为我们在上面创建设备的具体值。  
+
+设备与物联网平台建立 MQTT 连接，涉及 Broker 服务器地址、端口号、设备 ID（ClientID）、用户名（UserName）和密码（Password）。这些参数整理到了一张表里
+
+![iot](images/IOT25.jpg)
+
+用户名和密码不太好手动生成，我们可以借助一个网页工具来生成.
+
+为智能电灯设备编写 MQTT 代码了：
+
+```py
+
+from LED import Led
+from Button import Button
+from Relay import Relay
+
+import time 
+import uasyncio
+import network
+import ujson
+from umqtt.simple import MQTTClient
+
+"""
+Wi-Fi Gateway : SSID and Password
+"""
+WIFI_AP_SSID = "你家的Wi-Fi SSID"
+WIFI_AP_PSW = "你家的Wi-Fi密码"
+
+"""
+QCloud Device Info
+"""
+DEVICE_NAME = "你的设备名称"
+PRODUCT_ID = "你的产品ID"
+DEVICE_KEY = "你的设备密钥"
+
+"""
+MQTT topic
+"""
+MQTT_CONTROL_TOPIC = "$thing/down/property/"+PRODUCT_ID+"/"+DEVICE_NAME
+MQTT_CONTROL_REPLY_TOPIC = "$thing/up/property/"+PRODUCT_ID+"/"+DEVICE_NAME
+
+led = Led(5, 4, 0)
+relay = Relay(16)
+button = Button(14)
+
+mqtt_client = None
+color = 0   #enum 0=red, 1=green, 2=blue
+name= ""    #light name. it is optional
+brightness = 100  # 0%~100%
+light_changed = False
+
+async def wifi_connect(ssid, pwd):
+    sta = network.WLAN(network.STA_IF)
+    sta.active(True)
+    sta.connect(ssid, pwd)
+
+    while not sta.isconnected():
+        print("Wi-Fi Connecting...")
+        time.sleep_ms(500)
+
+def mqtt_callback(topic, msg):
+    global led, relay, button
+    global color, name, brightness, light_changed
+
+    print((topic, msg))
+    msg_json = ujson.loads(msg)
+    if msg_json['method'] == 'control':
+        params = msg_json['params']
+
+        power_switch_tmp = params.get('power_switch')
+        if power_switch_tmp is not None:
+            power_switch = power_switch_tmp
+            relay.set_state(power_switch)
+        
+        brightness_tmp = params.get('brightness')
+        if brightness_tmp is not None:
+            brightness = brightness_tmp
+
+        color_tmp = params.get('color')
+        if color_tmp is not None:
+            color = color_tmp
+        
+        name_tmp = params.get('name')
+        if name_tmp is not None:
+            name = name_tmp
+        
+        if brightness_tmp is not None or color_tmp is not None:
+            light_changed = True
+
+async def mqtt_connect():
+    global mqtt_client
+
+    MQTT_SERVER = PRODUCT_ID + ".iotcloud.tencentdevices.com"
+    MQTT_PORT = 1883
+    MQTT_CLIENT_ID = PRODUCT_ID+DEVICE_NAME
+    MQTT_USER_NAME = "你的用户名"
+    MQTTT_PASSWORD = "你的密码"
+
+    mqtt_client = MQTTClient(MQTT_CLIENT_ID, MQTT_SERVER, MQTT_PORT,MQTT_USER_NAME, MQTTT_PASSWORD, 60)
+    mqtt_client.set_callback(mqtt_callback)
+    mqtt_client.connect()
+
+def mqtt_report(client, color, name, switch, brightness):
+
+    msg = {
+        "method": "report",
+        "clientToken": "clientToken-2444532211",
+        "params": {
+            "color": color,
+            "color_temp": 0,
+            "name": name,
+            "power_switch": switch,
+            "brightness": brightness
+        }   
+    }
+
+    client.publish(MQTT_CONTROL_REPLY_TOPIC.encode(), ujson.dumps(msg).encode())
+
+async def light_loop():
+    global led, relay, button
+    global color, name, brightness, light_changed
+
+    switch_status_last = 1
+    LED_status = 1  
+
+    color = 2   #blue
+    brightness = 100    #here 100% == 1
+    led.rgb_light(0, 0, 255, brightness/100.0)
+
+    time_cnt = 0
+
+    mqtt_client.subscribe(MQTT_CONTROL_TOPIC.encode())
+
+    while True:
+        mqtt_client.check_msg()
+
+        switch_status = button.state()
+        LED_status = relay.state()
+        if switch_status != switch_status_last:
+            if switch_status == 0 and switch_status_last == 1:
+                LED_status = 0 if LED_status else 1
+            relay.set_state(LED_status)
+            switch_status_last = switch_status
+        
+        if light_changed:
+            light_changed = False
+            led.rgb_light(255 if color==0 else 0, 255 if color==1 else 0, 255 if color==2 else 0, brightness/100.0)
+
+        if time_cnt >= 20:
+            mqtt_report(mqtt_client, color, name, LED_status, brightness)
+            time_cnt = 0
+        time_cnt = time_cnt+1
+        time.sleep_ms(50)
+
+       uasyncio.sleep_ms(50)
+
+async def main():
+    global mqtt_client
+
+    # Wi-Fi connection
+    try:
+        await uasyncio.wait_for(wifi_connect(WIFI_AP_SSID, WIFI_AP_PSW), 20)
+    except uasyncio.TimeoutError:
+        print("wifi connected timeout!")
+    
+    # MQTT connection
+    try:
+        await uasyncio.wait_for(mqtt_connect(), 20)
+    except uasyncio.TimeoutError:
+        print("mqtt connected timeout!")
+
+    await uasyncio.gather(light_loop())
+
+uasyncio.run(main())
+```
+
+### 7.5. 如何通过手机远程控制
+
+在完成代码后，我们通过 ampy 工具或者 pyboard.py 工具，将这些源代码上传到 NodeMCU 开发板中。程序开始自动执行，智能电灯自动接入物联网平台。打开[腾讯云的物联网平台](https://cloud.tencent.com/login?s_url=https%3A%2F%2Fconsole.cloud.tencent.com%2Fiotexplorer)的设备调试页面，我们就可以看到设备显示“在线”。  
+
+在完成代码后，我们通过 ampy 工具或者 pyboard.py 工具，将这些源代码上传到 NodeMCU 开发板中。程序开始自动执行，智能电灯自动接入物联网平台。打开物联网平台的设备调试页面，我们就可以看到设备显示“在线”。  
+
+点击“发送”，物联网平台会向设备发送下面这样的消息内容：  
+
+```text
+{
+  "method": "control",
+  "clientToken": "clientToken-e9d920ea-a1f4-4a53-aada-a1d36fbbdd20",
+  "params": {
+    "power_switch": 1,
+    "brightness": 50,
+    "color": 0,
+    "color_temp": 0,
+    "name": ""
+  }
+}
+```
+
+打开“腾讯连连”小程序，点击“+”按钮，扫描我们在“设备调试”界面保存的二维码，就完成添加动作了。然后，点击设备卡片，进入设备交互界面，就可以进行远程控制了。  
+
+
+
+
+
+
+
+
