@@ -859,14 +859,14 @@ macOS 系统，可以在电脑的终端上输入 ls /dev/cu* 命令，查看是�
 
 ```text
 # 注意设备名称替换为你电脑上的名称
-esptool.py --port /dev/cu.wchusbserial14230 erase_flash
+esptool.py --port /dev/cu.usbserial-0001 erase_flash
 ```
 
 擦除成功后，我们进入存储前面下载固件的目录中，运行下面的命令，将固件文件烧录到开发板的 Flash 中：
 
 ```text
 # 注意设备名称替换为你电脑上的名称，固件文件名称做类似修改
-esptool.py --port /dev/cu.wchusbserial14230 --baud 460800 write_flash --flash_size=detect 0 esp8266-20200911-v1.13.bin
+esptool.py --port /dev/cu.usbserial-0001 --baud 460800 write_flash --flash_size=detect -fm dio 0 esp8266-20200911-v1.13.bin
 ```
 
 烧录成功后，MicroPython 已经在你的开发板上运行起来了。
@@ -1337,10 +1337,42 @@ uasyncio.run(main())
 
 打开“腾讯连连”小程序，点击“+”按钮，扫描我们在“设备调试”界面保存的二维码，就完成添加动作了。然后，点击设备卡片，进入设备交互界面，就可以进行远程控制了。  
 
+#### 7.5.1. 物联网平台的注册和登录
 
+微信扫码登录  https://cloud.tencent.com/login?s_url=https%3A%2F%2Fconsole.cloud.tencent.com%2Fiotexplorer  
 
+#### 7.5.2. 创建项目和产品
 
+![iot](images/IOT26.png)
 
+需要简单设置几个参数：
+
+- 产品品类，直接选择“智能生活”-->“电工照明”-->“灯”。
+- 认证方式选择密钥认证，这个比较简单，而且适合我们的开发板 NodeMCU。
+- 通信方式，选择 Wi-Fi。
+- 数据协议选择“数据模板”，也就是基于物模型来解析数据。  
+
+![iot](images/IOT27.png)
+
+#### 7.5.3. 定义物模型
+
+点击进入产品，我们可以看到“数据模板”界面中列出了“电灯开关”“亮度”“颜色”和“色温”等属性和事件。这些都是平台根据上一步选择的产品品类，自动生成的。  
+
+![iot](images/IOT28.png)
+
+#### 7.5.4. 定义交互界面
+
+在“交互开发”界面中，我们需要关注两个配置项：“使用官方小程序控制产品”的选项要保持打开，因为我们后面要通过小程序来控制智能电灯；在“扫一扫产品介绍”配置项中，设置产品图片和备注信息。  
+
+![iot](images/IOT29.png)
+
+#### 7.5.5. 为调试设备做准备
+
+![iot](images/IOT30.png)
+
+在“设备调试”界面中，我们创建一个测试设备。点击“新建设备”，输入设备名称“Led_1”。  
+
+创建成功后，在测试设备列表中，点击“Led_1”，进入设备的详情页面：在这个“设备信息”标签页，我们可以看到“设备名称”“设备秘钥”和“产品 ID”的信息。  
 
 
 
