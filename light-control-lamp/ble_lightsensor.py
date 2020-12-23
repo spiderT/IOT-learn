@@ -87,6 +87,7 @@ class BLELightSensor:
         objlen = 0x03
         objval = density
 
+        # struct.pack 按照格式字符串 fmt 压缩参数 v1, v2, ... 。返回值是参数编码后的字节对象。
         service_data = struct.pack(
             "<3HB", uuid, fc, pid, fcnt)+mac+struct.pack("<H2BH", objid, objlen, 0, objval)
         print("Service Data:", service_data)

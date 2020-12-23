@@ -1626,3 +1626,502 @@ if __name__ == "__main__":
 ![iot](images/IOT35.png)
 
 其中名称 Nodemcu 下面的就是广播包的具体数据。  
+
+### 8.7. 网关系统架构
+
+对于蓝牙设备，我们需要借助网关来实现联网的目的。用树莓派打造蓝牙网关，最终实现光照传感器和智能电灯的场景联动。  
+
+网关的主要功能是协议转换，一方面它需要接收低功耗蓝牙技术的光照传感器的广播数据，另一方面，它需要把解析的数据上传到云平台。  
+
+![iot](images/IOT36.jpg)
+
+#### 8.7.1. 南向蓝牙通信
+
+在树莓派上进行蓝牙开发，可以使用[bluepy](https://github.com/IanHarvey/bluepy)软件包。它提供了一个 Python 语言版本的低功耗蓝牙 API 接口，而且对树莓派的适配非常好。  
+
+#### 8.7.2. 通过终端登录树莓派
+
+先在树莓派上部署包含 [Gladys Assistant](https://gladysassistant.com/en/) 系统的 Raspbian 操作系统。  
+
+##### 8.7.2.1. 器材准备
+
+1. 树莓派 Raspberry Pi 4B，要求内存 2GB 以上，但是 8GB 内存版本要谨慎选择，因为有些开源平台软件对 Arm 64bit 芯片支持不够好。
+2. 供电电源，要求支持 3A 以上电流。
+3. Micro SD 卡，也叫 TF 卡，存储容量最好在 16GB 以上。在选择的时候，你要关注读写速度等级，比如 U3 表示最低写入速度是 30MB/s。同时你也要关注应用性能等级，它定义了 Micro SD 卡进行随机读写的性能，最好是选择 Application Performance Class 2（卡面上标识 A2 图标）。在卡上存储应用程序和应用程序数据时，这个性能指标非常重要。
+4. Micro SD 卡读卡器。有些电脑自带这个接口，如果没有的话，你可以买一个便宜的使用。
+5. 普通网线。如果你希望以有线的方式使用树莓派，可以准备一根。同时也会介绍树莓派接入 Wi-Fi 的方式。
+
+##### 8.7.2.2. 烧录系统镜像
+
+树莓派板子在启动的时候，会从 SD 卡读取操作系统镜像文件，完成操作系统的引导启动工作。所以我们接下来要在 SD 卡上烧录系统镜像。  
+
+可以使用一个免费的烧录工具，Etcher。它支持 MacOS、Windows 和 Linux 三种主流的电脑系统，你可以从[官方网站](https://etcher.io/)上下载和安装。也可以点击[这个链接](https://github.com/balena-io/etcher/releases)下载最新版。  
+
+然后，下载树莓派的系统镜像文件。树莓派有官方的操作系统镜像 Raspbian 可以选择，但是为了避免手动在 Raspbian 系统中安装 Gladys Assistant 软件的麻烦，我们直接选择官方提供的已经配置好 Gladys Assistant 的 Raspbian 镜像文件。  
+
+从这个[链接](http://cdn.elephantcdn.com/gh/gladysassistant/gladys/releases/download/v4.0.0/gladys-4.0.0-rev3.img.zip)中下载好镜像文件，并且解压缩得到"img"扩展名的文件。然后把 Micro SD 卡插入读卡器，或者直接插入你的电脑接口中。运行 Etcher 软件，按照步骤把镜像文件烧录到存储卡中。  
+
+![iot](images/IOT37.png)
+
+树莓派支持网线接口，不过，如果你希望树莓派接入家里的 Wi-Fi 热点，而不是使用网线访问网络，那么就需要在 Micro SD 卡中增加一个配置文件。这个配置文件的文件名必须是 wpa_supplicant.conf。你可以在电脑上使用自己熟悉的文本编辑器创建这个文件，并且在文件中输入下面的内容：  
+
+```text
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+country=CN
+
+
+network={
+ ssid="你的Wi-Fi热点SSID名称"
+ psk="你的Wi-Fi热点密码"
+ key_mgmt=WPA-PSK
+}
+```
+
+然后将这个文件拷贝到 Micro SD 卡的根目录。这时，你就可以把 Micro SD 卡插入树莓派开发板了。  
+
+##### 8.7.2.3. 启动系统
+
+烧录好镜像文件，准备好 Micro SD 卡后，你可以把 Micro SD 卡从读卡器取出，插入树莓派的对应接口中。接着，接上电源线（如果你使用网线方式，记得也将网线接入树莓派板的网口上）。这时树莓派将自动启动运行，需要等待一段时间。  
+
+过一会儿之后，在你的电脑上，打开浏览器，输入 "http://gladys.local" 来访问树莓派上的 Gladys Assistant 系统，如下图所示.  
+
+怎么获取到树莓派的 IP 地址呢？你可以使用一些网络分析软件，比如 Android 手机上安装 Network Scanner，iOS 手机上安装 iNet 来扫描网络。  
+
+![iot](images/IOT38.png)
+
+安装软件包之前，我们在电脑终端上输入下面的命令，通过 SSH 协议登录到树莓派系统中。  
+
+```text
+ssh pi@gladys.local
+```
+
+其中，pi 就是默认的登录用户名，gladys.local 是树莓派开发板的本地域名。当提示输入密码时，我们输入默认密码 raspberry，然后回车，就登录到了树莓派系统中。  
+
+#### 8.7.3. 通过图形化窗口软件(SecureCRT)登录树莓派
+
+![iot](images/IOT39.png)
+
+第一次登录时，SecureCRT 会弹窗提示我们查看“Host Key”，这时点击“Accept Once”即可。
+
+![iot](images/IOT40.png)
+
+#### 8.7.4. 在树莓派开发蓝牙程序
+
+在树莓派的终端上输入下面命令，就可以完成 bluepy 的安装：  
+
+```text
+sudo apt-get install python3-pip libglib2.0-dev
+sudo pip3 install bluepy
+```
+
+还需要安装 interruptingcow 软件包。它主要是便于编写定时任务。它的安装命令是：
+
+```text
+sudo pip3 install interruptingcow
+```
+
+具体代码如下
+
+```py
+#File: blescan.py
+import time
+from threading import Thread
+from interruptingcow import timeout
+
+from bluepy.btle import DefaultDelegate, Peripheral, Scanner, UUID, capitaliseName, BTLEInternalError
+from bluepy.btle import BTLEDisconnectError, BTLEManagementError, BTLEGattError
+
+class LightScanner():
+    SCAN_TIMEOUT = 5
+
+    def __init__(self, name):
+        self._name = name
+    
+    def status_update(self):
+        results = self._get_data()
+
+        # messages = [
+        #     MqttMessage(
+        #         topic=self.format_topic("property/light"),
+        #         payload=results.lightlevel,
+        #     )
+        # ]
+
+        return results
+
+    def _get_data(self):
+
+        scan_processor = ScanProcessor(self._name)
+        scanner = Scanner().withDelegate(scan_processor)
+        scanner.scan(self.SCAN_TIMEOUT, passive=True)
+
+        with timeout(
+            self.SCAN_TIMEOUT,
+            exception=Exception(
+                "Retrieving data from {} device {} timed out after {} seconds".format(
+                    repr(self), self._name, self.SCAN_TIMEOUT
+                )
+            ),
+        ):
+            while not scan_processor.ready:
+                time.sleep(1)
+            return scan_processor.results
+
+        return scan_processor.results
+
+class ScanProcessor:
+
+    ADV_TYPE_SERVICE_DATA = 0x16
+    def __init__(self, name):
+        self._ready = False
+        self._name = name
+        self._results = MiBeaconData()
+
+    def handleDiscovery(self, dev, isNewDev, _):
+        is_nodemcu = False
+        if isNewDev:
+            for (adtype, desc, value) in dev.getScanData():
+                #Service Data UUID == 0xFE95 according to MiBeacon
+                if adtype == self.ADV_TYPE_SERVICE_DATA and value.startswith("95fe"):
+                    print("FOUND service Data:",adtype, desc, value)
+                    #Object ID == 0x1007 according to MiBeacon
+                    if len(value) == 38 and value[26:30] == '0710':
+                        light_den = int((value[-2:] + value[-4:-2]), 16)
+                        mac = value[14:26]
+
+                        self._results.lightlevel = light_den
+                        self._results.mac = mac
+
+                        self.ready = True
+
+    @property
+    def mac(self):
+        return self._mac
+
+    @property
+    def ready(self):
+        return self._ready
+
+    @ready.setter
+    def ready(self, var):
+        self._ready = var
+
+    @property
+    def results(self):
+        return self._results
+
+class MiBeaconData:
+    def __init__(self):
+        self._lightlevel = None
+        self._mac = None
+
+    @property
+    def lightlevel(self):
+        return self._lightlevel
+
+    @lightlevel.setter
+    def lightlevel(self, var):
+        self._lightlevel = var
+
+    @property
+    def mac(self):
+        return self._mac
+
+    @mac.setter
+    def mac(self, var):
+        self._mac = var
+```
+
+### 8.8. 北向 MQTT 对接云平台
+
+实现网关和云平台的对接。
+
+#### 8.8.1. MQTT 开发环境准备
+
+蓝牙网关与云平台交互的通信协议也是使用 MQTT 协议，所以我们需要安装 MQTT 的软件包。  
+
+选择支持 Python 语言开发的Eclipse Paho软件包。我们在树莓派的终端上输入下面的命令来安装。  
+
+```text
+sudo pip3 install paho-mqtt
+```
+
+安装成功后，我们可以写一个 demo 程序测试一下。这段代码会连接到 test.mosquitto.org，并且订阅“/geektime/iot”的主题消息。  
+
+```py
+#File: mqttdemo.py 
+import paho.mqtt.client as mqtt
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+
+    client.subscribe("/geektime/iot")
+
+def on_message(client, userdata, msg):
+    print(msg.topic+" "+str(msg.payload))
+
+client = mqtt.Client()
+client.on_connect = on_connect
+client.on_message = on_message
+
+#Still connect to mqtt.eclipse.org
+client.connect("test.mosquitto.org", 1883, 60)
+
+client.loop_forever()
+```
+
+#### 8.8.2. 部署文件到树莓派
+
+把测试文件 mqttdemo.py 上传到树莓派上。在电脑终端上，运行下面的命令。需要先在树莓派上创建 pi-gateway 这个目录。  
+
+```text
+scp mqttdemo.py pi@gladys.local:/home/pi/pi-gateway/
+```
+
+这个 scp 命令是基于 SSH 协议实现的安全文档传输功能。  
+
+一个能实现 scp 功能的软件 [FileZilla](https://filezilla-project.org/download.php?type=client)。它支持 MacOS、Windows 和 Linux 操作系统，操作界面也非常直观。  
+
+打开“站点管理器”，创建“新站点”。按照下图设置具体配置参数，然后点击“连接”，登录到树莓派系统。为了方便之后的使用，勾选“保存密码”选项。  
+
+![iot](images/IOT41.png)
+
+在软件界面的左半部分是你的电脑上的文件目录，右半部分是树莓派上的目录。你只需要双击左边的某个文件，就可以将文件传输到树莓派上。当然你也可以双击右边树莓派上的文件，将它传输到你的电脑。  
+
+![iot](images/IOT42.png)  
+
+把文件传输到树莓派之后，我们就可以在树莓派的终端上输入下面的命令，运行上面的 demo 程序。  
+
+```text
+sudo python3 mqttdemo.py
+```
+
+### 8.9. 云平台创建光照传感器设备
+
+在腾讯云平台上创建对应的光照传感器设备。  
+
+在“新建产品”中，产品类别选择“智慧生活”-->“安防报警”-->“光照度传感器”。数据协议仍然选择“数据模板”，其他的保持默认值即可。创建成功后，我们点击进入数据模板的设置界面。为了尽量简单，我只定义了一个属性“光照度”，而且是只读类型。你可以直接导入下面的 JSON 文件完成数据模板的设置。  
+
+```json
+{
+  "version": "1.0",
+  "profile": {
+    "ProductId": "你的ProductID",
+    "CategoryId": "112"
+  },
+  "properties": [
+    {
+      "id": "Illuminance",
+      "name": "光照度",
+      "desc": "光照度检测",
+      "mode": "r",
+      "define": {
+        "type": "float",
+        "min": "0",
+        "max": "6000",
+        "start": "0",
+        "step": "1",
+        "unit": "Lux"
+      }
+    }
+  ],
+  "events": [],
+  "actions": []
+}
+```
+
+在“交互开发”标签页中，和智能电灯一样，我们仍然保持“使用官方小程序控制产品”选项是打开状态。另外，还有一个配置项需要关注，那就是“智能联动配置”，因为后面我们要为光照传感器设置联动场景。  
+
+![iot](images/IOT43.png)  
+
+点击“配置”，在设置页面中，就可以看到“光照度”这个属性，因为它是只读属性，所以只能作为联动的触发条件。我们勾选“作为条件”的选项，完成配置。  
+
+下一步，在“设备调试”界面中，我们创建一个测试设备。点击“新建设备”，输入设备名称“Lightsensor_1”。  
+
+创建成功后，在测试设备列表中，点击“Lightsensor_1”，进入设备的详情页面，我们可以看到设备三元组的信息。你需要将这些信息记录下来，因为后面的开发中需要使用。  
+
+在测试设备列表中，我们点击“二维码”操作，获取测试设备的二维码，以便在小程序“腾讯连连”中添加这个设备。  
+
+### 8.10.  产品联网开发
+
+```py
+#File: gateway.py
+from blescan import LightScanner, MiBeaconData
+
+import time 
+import asyncio
+import json
+import uuid
+import paho.mqtt.client as MQTTClient
+
+"""
+QCloud Device Info
+"""
+DEVICE_NAME = "Lightsensor_1"
+PRODUCT_ID = "MAO3SVUCFO"
+DEVICE_KEY = "TYjuKNc2GpDykXUv4MWBOA=="
+
+"""
+MQTT topic
+"""
+MQTT_CONTROL_TOPIC = "$thing/down/property/"+PRODUCT_ID+"/"+DEVICE_NAME
+MQTT_CONTROL_REPLY_TOPIC = "$thing/up/property/"+PRODUCT_ID+"/"+DEVICE_NAME
+
+def mqtt_callback(client, userdata, msg):
+    # Callback
+    print(f"Received `{msg.payload.decode()}` from `{msg.topic}` topic")
+
+async def mqtt_connect():
+    #connect callback
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print("Connected to MQTT Broker!")
+        else:
+            print("Failed to connect, return code %d\n", rc)
+
+    mqtt_client = None
+    MQTT_SERVER = PRODUCT_ID + ".iotcloud.tencentdevices.com"
+    MQTT_PORT = 1883
+    MQTT_CLIENT_ID = PRODUCT_ID+DEVICE_NAME
+    MQTT_USER_NAME = "MAO3SVUCFOLightsensor_1;12010126;2OYA5;1609057368"
+    MQTTT_PASSWORD = "8f79b7f1b0bef9cde7fd9652383b6ff8bfeb8003cc994c64f3c8e069c11fd4c7;hmacsha256"
+
+    mqtt_client = MQTTClient.Client(MQTT_CLIENT_ID)
+    mqtt_client.username_pw_set(MQTT_USER_NAME, MQTTT_PASSWORD)
+    mqtt_client.on_connect = on_connect
+    
+    mqtt_client.connect(MQTT_SERVER, MQTT_PORT, 60)
+
+    return mqtt_client
+
+def mqtt_report(client, light_level):
+    client_token = "clientToken-" + str(uuid.uuid4())
+
+    msg = {
+        "method": "report",
+        "clientToken": client_token,
+        "params": {
+            "Illuminance": light_level
+        }
+    }
+
+    client.publish(MQTT_CONTROL_REPLY_TOPIC, json.dumps(msg))
+
+async def light_loop(mclient):
+
+    bles = LightScanner('Nodemcu')
+
+    mclient.subscribe(MQTT_CONTROL_TOPIC)
+    mclient.on_message = mqtt_callback
+
+    mclient.loop_start()
+
+    while True:
+        try:
+            data = bles.status_update()
+        except Exception as e:
+            print("BLE SCAN error:", e)
+            continue
+        
+        print("Light Level:", data.lightlevel)
+
+        mqtt_report(mclient, data.lightlevel)
+        
+        time.sleep(0.1)
+
+async def main():
+    mqtt_client = None
+    # MQTT connection
+    try:
+        mqtt_client = await asyncio.wait_for(mqtt_connect(), 20)
+    except asyncio.TimeoutError:
+        print("mqtt connected timeout!")
+
+    if mqtt_client is not None:
+        await asyncio.gather(light_loop(mqtt_client))
+
+asyncio.run(main())
+```
+
+### 8.11. 在树莓派上部署软件
+
+把代码文件 gateway.py 和 blescan.py 两个文件也上传到树莓派的 /home/pi/pi-gateway 目录中。  
+
+同时，为了让程序作为后台服务运行，并且能够开机自启动，我们来做一个 Pi Gateway Service。  
+
+首先，你需要新建一个 service.sh 脚本文件，内容如下：  
+
+```sh
+#!/bin/sh
+set -e
+SCRIPT_DIR=$( cd "$( dirname "$0" )" >/dev/null 2>&1 && pwd )
+
+cd "$SCRIPT_DIR"
+sudo python3 ./gateway.py "$@"
+```
+
+创建 service 的配置文件，内容如下：
+
+```text
+[Unit]
+Description=Pi Gateway
+Documentation=12345
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/pi-gateway
+ExecStart=/home/pi/pi-gateway/service.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+接着，把这两个文件上传到树莓派系统的 /home/pi/pi-gateway 目录中，并且运行下面命令，修改文件的属性。
+
+```text
+sudo chmod a+x service.sh 
+sudo chmod a+x pi-gateway.service
+```
+
+最后，执行下面的几条命令，为树莓派系统增添上 Pi Gateway 这个服务。  
+
+```text
+$ sudo cp /home/pi/pi-gateway/pi-gateway.service /etc/systemd/system/
+$ sudo systemctl daemon-reload
+$ sudo systemctl start pi-gateway
+$ sudo systemctl status pi-gateway
+$ sudo systemctl enable pi-gateway
+```
+
+到这里，网关程序已经在树莓派上运行起来。我们在腾讯云物联网平台上可以看到，光照传感器变为“在线”状态。  
+
+### 8.12. 设置场景联动
+
+当光照强度大于 1024Lux 时，关闭电灯。当光照强度小于 1024Lux 时，打开电灯。至于光照强度等于 1024Lux 时，也打开电灯。
+
+这里的 1024Lux 是我自己选择的一个值，你可以根据房屋情况自己调整。  
+
+可以打开微信中的腾讯连连小程序，扫描上面云平台“设备调试”中保存的那个二维码，添加光照传感器测试设备“Lightsensor_1”。现在你的小程序里面已经有了两个设备.  
+
+我们进入智能电灯的“交互开发”页面，打开下面的“智能联动配置”页面，然后，把“电灯开关”的“作为任务”条件勾选上。  
+
+进入腾讯连连小程序，点击下面的“+”，选择“添加智能”，开始配置工作。  
+
+首先，我们添加条件，选择光照传感器设备，然后就会看到光照度属性。我们先设置大于 1024Lux 的条件。  
+
+然后，我们添加任务，选择智能电灯设备后，可以看到电灯开关的属性，选择“关”，点击保存。  
+
+这时，我们可以看到这个智能联动的条件和任务已经配置完成。腾讯连连小程序还支持配置“生效时间段”，可以限定智能联动在选定的时间段内运行。  
+
+可以通过控制光照传感器的光照明暗（比如用手遮挡光敏元器件然后再把手拿开），来观察智能电灯的打开和关闭，检验功能是否正常。  
+
+
+
+
+
+
+
+
