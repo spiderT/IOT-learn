@@ -2118,6 +2118,364 @@ $ sudo systemctl enable pi-gateway
 
 可以通过控制光照传感器的光照明暗（比如用手遮挡光敏元器件然后再把手拿开），来观察智能电灯的打开和关闭，检验功能是否正常。  
 
+## 9. 智能音箱: 语音控制
+
+### 9.1. 智能音箱的技术架构
+
+智能音箱主要涉及拾音、前端信号处理、语音识别、自然语言处理和语音合成等技术，现在一些产品甚至提供了声纹识别技术。智能音箱最重要的是提供各种功能，完成一些任务，比如控制电灯的开和关，这被称为技能。  
+
+整体的技术架构如下图所示：  
+
+![iot](images/IOT44.jpg)  
+
+#### 拾音
+
+拾音，就是通过麦克风获取你的语音。智能音箱上一般采用麦克风阵列（Mic Array），也就是按照一定规则排列的多个麦克风.  
+
+#### 前端语音信号处理
+
+在收集到声音信号后，还需要进行前端语音信号处理。只有经过处理，智能音箱才能获取到相对干净的语音信号，也才能提高后面的语音识别的准确率。这些处理技术包括回声消除（Acoustic Echo Cancellaction, AEC）、噪音抑制（Noise Suppression，NS）、语音检测（Voice Activity Detection，VAD）、声源定位（Direction of Arrival estimation，DOA）、波束成型（Beamforming）和混响消除（Speech Dereverberation）等。  
+
+![iot](images/IOT45.jpg)  
+
+#### 语音唤醒
+
+语音唤醒（Keyword Spotting，KWS），就是通过特定的唤醒词来激活智能音箱，以便进行后续的语音交互任务。这样做一方面可以保护用户的隐私，因为只有唤醒后，音箱才收集和识别用户的语音信息，另一方面也可以简化语音的识别和理解，比如小米智能音箱的“小爱同学”就是这样的唤醒词。
+
+#### 语音识别
+
+语音识别（Automatic Speech Recognition，ASR），主要完成的任务是将语音转换成文本，所以也被称为 STT（Speech to Text）。  
+
+#### 自然语言理解
+
+自然语言理解（Natural Language Understanding，NLU），是对语音识别生成的文本进行处理，识别用户的意图，并生产结构化的数据。
+
+#### 技能
+
+技能（Skills）一般要借助后端云平台的强大能力，云平台可以提供知识图谱、家居设备远程控制和音乐等音频资源等能力。  
+
+#### 自然语言生成
+
+自然语言生成（Natural Language Generation，NLG），就是将各种技能的响应结果组织成文本语言。  
+
+#### 语音合成
+
+语音合成（Speech Synthesis），就是将自然语言生成的文本转换为语音的形式，提供给智能音箱播放出来，给人的感觉就像和音箱在对话。因此，这个过程也叫做 TTS（Text to Speech）。
+
+### 9.2. 智能音箱的开发
+
+如果你的树莓派是 Raspberry Pi 3 系列，建议把系统镜像切换成 Debian stretch 版本。通过这个[链接](https://downloads.raspberrypi.org/raspbian/images/raspbian-2019-04-09/)就可以下载基于 Debian stretch 版本的 Raspbian 镜像文件压缩包，安装还是使用 Etcher 工具.  
+
+#### 9.2.1. 麦克风阵列
+
+麦克风阵列我使用的是 ReSpeaker 2-Mics Pi HAT，它的 2 个麦克风分布在模组的两边。来配置一下，让它可以在树莓派上正常工作。  
+
+通过下面的命令安装它的驱动程序。首先，你最好切换一下树莓派的软件安装源，将它切换到国内的清华源，这样下载安装的速度比较快。运行下面的命令修改配置文件：  
+
+```text
+sudo vim /etc/apt/sources.list
+```
+
+将文件修改为下面的内容：
+
+```text
+deb https://mirrors.cloud.tencent.com/raspbian/raspbian/ buster main contrib non-free rpi
+# Uncomment line below then 'apt-get update' to enable 'apt-get source'
+deb-src https://mirrors.cloud.tencent.com/raspbian/raspbian/ buster main contrib non-free rpi
+```
+
+修改另一个软件安装源的配置文件，命令如下所示：
+
+```text
+sudo vim /etc/apt/sources.list.d/raspi.list 
+```
+
+修改后的文件内容如下：
+
+```text
+deb https://mirrors.cloud.tencent.com/raspberrypi/ buster main
+# Uncomment line below then 'apt-get update' to enable 'apt-get source'
+deb-src https://mirrors.cloud.tencent.com/raspberrypi/ buster main
+```
+
+然后，你需要运行下面的命令更新安装源：
+
+```text
+sudo apt-get clean all
+sudo apt-get update
+```
+
+可以运行下面命令安装麦克风阵列的驱动程序。因为这个驱动依赖的 wm8960 编解码器没有包含在树莓派系统的内核里面，需要重新加载内核，编译驱动，所以整个过程比较久。  
+
+```text
+sudo apt-get install git
+git clone --depth=1 https://github.com/respeaker/seeed-voicecard
+cd seeed-voicecard
+sudo ./install.sh
+sudo reboot
+```
+
+树莓派重启之后，你可以在树莓派终端输入下面的命令，查看音频的输入和输出设备是否正常工作。  
+
+```text
+arecord -l
+aplay -l
+```
+
+如果一切正常，我们就可以测试录音和播放功能了。在 ReSpeaker 2-Mics Pi HAT 的耳机插口上插入耳机或者扬声器，运行下面的命令，并说几句话。
+
+```text
+arecord -d 5 test.wav
+aplay test.wav 
+```
+
+#### 9.2.2. 语音唤醒
+
+为了实现语音唤醒，我们需要选择一个轻量级的、可以在树莓派上运行的唤醒词监测器软件。[Mycroft Precise](https://github.com/MycroftAI/mycroft-precise)，它是一个基于 RNN 神经网络的语音唤醒工具。  
+
+在树莓派安装 Mycroft Precise。因为需要训练唤醒词模型，我们需要基于源代码来编译、安装。  
+
+首先，我们通过 git 命令把 Mycroft Precise 的源代码下载到树莓派的 /home/pi 目录：
+
+```text
+cd ~
+git clone https://github.com/mycroftai/mycroft-precise
+cd mycroft-precise
+```
+
+在安装之前，把 pypi 的安装源修改到清华数据源，可以获得更快的下载速度。我们打开目录中的 setup.sh 文件：  
+
+```text
+vim setup.sh
+```
+
+将文件中的这行内容：
+
+```text
+extra-index-url=https://www.piwheels.org/simple
+```
+
+替换成下面的内容：
+
+```text
+index-url=https://pypi.tuna.tsinghua.edu.cn/simple
+extra-index-url=https://www.piwheels.org/simple
+```
+
+运行它自带的安装脚本，开始编译和安装。中间如果执行中断，可以重新执行这个命令，继续安装过程。（提示：有些 ARM 平台的库只有 piwheels 上有，所以这些库安装时速度还是很慢。这种情况下，可以电脑上使用下载工具获取这个模块的安装文件，然后上传到树莓派上，手动安装。）
+
+```text
+./setup.sh
+```
+
+安装完成后，我们开始使用 Mycroft Precise 来训练一个唤醒词模型，唤醒词可以根据喜好来选择，比如“hello merry”。
+
+先激活 Python 的虚拟环境，因为 Mycroft Precise 在安装过程中创建了这个虚拟环境。  
+
+```text
+source .venv/bin/activate
+```
+
+通过工具 precise-collect 来收集语音模型训练的声音素材，运行后，根据提示录制 12 段声音。  
+
+```text
+precise-collect
+Audio name (Ex. recording-##): spider.##
+
+Press space to record (esc to exit)...
+Recording...
+Saved as spider-00.wav
+Press space to record (esc to exit)...
+```
+
+然后，我们需要将这些声音随机分为两份，一份是训练样本，包括 8 个声音文件，另一份是测试样本，包括 4 个声音文件，并且把这两份样本分别放到 spider/wake-word/ 和 /spider/test/wake-word/ 这两个目录下面。  
+
+接着，我们执行下面的命令，生成神经网络模型 spider.net：
+
+```text
+precise-train -e 60 spider.net spider/
+```
+
+最后，我们还需要将 spider.net 的模型格式做一下转换，将它从 Keras 模型格式改为 TensorFlow 模型格式，因为 TensorFlow 模型更加通用。
+
+```text
+precise-convert spider.net
+```
+
+执行完成之后，我们会得到两个文件：  
+
+1. spider.pb，TensorFlow 模型文件
+2. spider.pb.params，包含 Mycroft Precise 在处理音频时需要的一些参数信息。
+
+为了提高模型的准确性，我们还可以使用 precise-train-incremental 工具来增加负样本，重新训练刚才的模型。如果环境复杂的话，你可以尝试一下。  
+
+然后，我们可以运行一段代码来测试这个唤醒词模型。不过，因为 portaudio 这个库在树莓派上运行有问题，我们需要先修复一下 portaudio 库。你可以运行下面的命令：  
+
+```text
+sudo apt-get remove libportaudio2
+sudo apt-get install libasound2-dev
+git clone -b alsapatch https://github.com/gglockner/portaudio
+cd portaudio
+./configure && make
+sudo make install
+sudo ldconfig
+```
+
+测试程序的代码如下：
+
+```py
+# File：kwsdemo.py
+#!/usr/bin/env python3
+
+from precise_runner import PreciseEngine, PreciseRunner
+
+engine = PreciseEngine('precise-engine/precise-engine', 'geektime.pb')
+runner = PreciseRunner(engine, on_activation=lambda: print('hello'))
+runner.start()
+
+# Sleep forever
+from time import sleep
+while True:
+    sleep(10)
+```
+
+把 kwsdemo.py 文件，还有两个 spider.pb 模型相关的文件，都上传到树莓派的 Mycroft Precise 目录下，然后运行 kwsdemo.py 文件，说出"hello merry"几个字，就会看到终端显示出"hello"这个单词。  
+
+#### 9.2.3. 语音识别
+
+直接采用腾讯云提供的语音识别 SDK 来完成。它会将语音发送到云端，由云端服务器计算出文本信息。你可以通过下面命令来安装：
+
+```text
+pip3 install tencentcloud-sdk-python
+```
+
+在开始使用之前，你需要访问[这个链接](https://console.cloud.tencent.com/cam/capi)创建一个密钥，然后记录下 SecretId 和 SecretKey 的信息。  
+
+参考下面的代码，来完成一个录音文件的识别。  
+
+```py
+from tencentcloud.common import credential
+from tencentcloud.common.profile.client_profile import ClientProfile
+from tencentcloud.common.profile.http_profile import HttpProfile
+from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException 
+from tencentcloud.asr.v20190614 import asr_client, models 
+import base64
+import io 
+import sys 
+
+SECRET_ID = "你的Secret ID"
+SECRET_KEY = "你的Secret Key"
+
+try: 
+    cred = credential.Credential(SECRET_ID, SECRET_KEY) 
+    httpProfile = HttpProfile()
+    httpProfile.endpoint = "asr.tencentcloudapi.com"
+    clientProfile = ClientProfile()
+    clientProfile.httpProfile = httpProfile
+    clientProfile.signMethod = "TC3-HMAC-SHA256"  
+    client = asr_client.AsrClient(cred, "ap-beijing", clientProfile) 
+    #读取文件以及 base64
+    with open('./geektime-00.wav', "rb") as f:
+        if sys.version_info[0] == 2:
+            content = base64.b64encode(f.read())
+        else:
+            content = base64.b64encode(f.read()).decode('utf-8')
+        f.close()
+    #发送请求
+    req = models.SentenceRecognitionRequest()
+    params = {"ProjectId":0,"SubServiceType":2,"SourceType":1,"UsrAudioKey":"sessionid-geektime"}
+    req._deserialize(params)
+    req.DataLen = len(content)
+    req.Data = content
+    req.EngSerViceType = "16k_zh"
+    req.VoiceFormat = "wav"
+    resp = client.SentenceRecognition(req) 
+    print(resp.to_json_string()) 
+
+except TencentCloudSDKException as err: 
+    print(err)
+```
+
+#### 9.2.4. 语音合成
+
+基于离线的 TTS 引擎来实现，比如[HanTTS](https://github.com/junzew/HanTTS)这个项目。  
+
+可以使用腾讯云的语音合成服务。你可以参考下面的代码：  
+
+```py
+import json
+import base64
+
+from tencentcloud.common import credential
+from tencentcloud.common.profile.client_profile import ClientProfile
+from tencentcloud.common.profile.http_profile import HttpProfile
+from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
+from tencentcloud.tts.v20190823 import tts_client, models
+
+SECRET_ID = "你的Secret ID"
+SECRET_KEY = "你的Secret Key"
+
+try: 
+    cred = credential.Credential(SECRET_ID, SECRET_KEY) 
+    httpProfile = HttpProfile()
+    httpProfile.endpoint = "tts.tencentcloudapi.com"
+
+    clientProfile = ClientProfile()
+    clientProfile.httpProfile = httpProfile
+    client = tts_client.TtsClient(cred, "ap-beijing", clientProfile) 
+
+    req = models.TextToVoiceRequest()
+    params = {
+        "Text": "我已经把灯关了",
+        "SessionId": "sessionid-geektime",
+        "ModelType": 1,
+        "ProjectId": 0,
+        "VoiceType": 1002
+    }
+    req.from_json_string(json.dumps(params))
+
+    resp = client.TextToVoice(req) 
+    print(resp.to_json_string()) 
+
+    if resp.Audio is not None:
+        audio = resp.Audio
+        data = base64.b64decode(audio)
+        wav_file = open("temp.wav", "wb")
+        wav_file.write(data)
+        wav_file.close()
+
+except TencentCloudSDKException as err: 
+    print(err)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
